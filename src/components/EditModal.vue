@@ -59,4 +59,7 @@ const vFocus = {
 .save-btn { background: #4caf50; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; }
 .modal-delete-btn { background: #ff4d4d; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; }
 .cancel-btn { background: #eee; border: none; padding: 10px; border-radius: 4px; cursor: pointer; color: #333; }
+@media (max-width: 768px) {
+  .modal-content{margin: 0 16px;}}
+
 </style>

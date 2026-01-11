@@ -96,5 +96,7 @@ margin-left: 8px;}
     /* ラベルが固定されないので、横に長く並ぶようにする */
     min-width: max-content;
   }
+
+      
 }
 </style>
