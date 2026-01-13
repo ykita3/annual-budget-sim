@@ -1,118 +1,125 @@
 <script setup>
-  import { ref, reactive, watch } from 'vue'
-  import MonthRow from './components/MonthRow.vue'
-  import EditModal from './components/EditModal.vue'
+import { ref, reactive, watch } from 'vue';
+import MonthRow from './components/MonthRow.vue';
+import EditModal from './components/EditModal.vue';
 
-  // --- カテゴリ管理 ---
-  const savedCategories = JSON.parse(localStorage.getItem('kakeibo_categories'))
-  const categories = ref(savedCategories || [
+// --- カテゴリ管理 ---
+const savedCategories = JSON.parse(localStorage.getItem('kakeibo_categories'));
+const categories = ref(
+  savedCategories || [
     { id: 'income', label: '収入' },
     { id: 'investment', label: '投資' },
     { id: 'food', label: '食費' },
     { id: 'misc', label: '雑費/趣味/サブスク' },
     { id: 'play', label: '遊び' },
     { id: 'rent', label: '家賃' },
-  ])
+  ]
+);
 
-  // --- 編集・削除ロジック ---
-  const editingCategory = ref(null)
-  const openEdit = (cat) => { editingCategory.value = { ...cat } }
-  
-  const saveEdit = () => {
-    if (editingCategory.value.id === 'new') {
-      const newId = 'cat_' + Date.now()
-      categories.value.push({ id: newId, label: editingCategory.value.label })
-      data[newId] = {}
-    } else {
-      const index = categories.value.findIndex(c => c.id === editingCategory.value.id)
-      if (index !== -1) categories.value[index].label = editingCategory.value.label
-    }
-    localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value))
-    editingCategory.value = null 
-  }
+// --- 編集・削除ロジック ---
+const editingCategory = ref(null);
+const openEdit = (cat) => {
+  editingCategory.value = { ...cat };
+};
 
-  const deleteCategory = (id, label) => {
-    if (confirm(`「${label}」を削除してもいい？データも消えちゃうよ。`)) {
-      categories.value = categories.value.filter(c => c.id !== id)
-      delete data[id]
-      localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value))
-      return true
-    }
-    return false
+const saveEdit = () => {
+  if (editingCategory.value.id === 'new') {
+    const newId = 'cat_' + Date.now();
+    categories.value.push({ id: newId, label: editingCategory.value.label });
+    data[newId] = {};
+  } else {
+    const index = categories.value.findIndex((c) => c.id === editingCategory.value.id);
+    if (index !== -1) categories.value[index].label = editingCategory.value.label;
   }
-  const deleteFromEdit = () => {
-    deleteCategory(editingCategory.value.id, editingCategory.value.label)
-    editingCategory.value = null
-  }
+  localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value));
+  editingCategory.value = null;
+};
 
-  // --- データ管理 ---
-  const initialState = categories.value.reduce((acc, cat) => {
-    acc[cat.id] = {}
-    return acc
-  }, {})
-  const savedData = JSON.parse(localStorage.getItem('kakeibo_vue_data'))
-  const data = reactive(savedData || initialState)
+const deleteCategory = (id, label) => {
+  if (confirm(`「${label}」を削除してもいい？データも消えちゃうよ。`)) {
+    categories.value = categories.value.filter((c) => c.id !== id);
+    delete data[id];
+    localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value));
+    return true;
+  }
+  return false;
+};
+const deleteFromEdit = () => {
+  deleteCategory(editingCategory.value.id, editingCategory.value.label);
+  editingCategory.value = null;
+};
 
-  categories.value.forEach(cat => {
-    if (!data[cat.id]) data[cat.id] = {}
-  })
+// --- データ管理 ---
+const initialState = categories.value.reduce((acc, cat) => {
+  acc[cat.id] = {};
+  return acc;
+}, {});
+const savedData = JSON.parse(localStorage.getItem('kakeibo_vue_data'));
+const data = reactive(savedData || initialState);
 
-  watch(data, (newData) => {
-    localStorage.setItem('kakeibo_vue_data', JSON.stringify(newData))
-  }, { deep: true })
+categories.value.forEach((cat) => {
+  if (!data[cat.id]) data[cat.id] = {};
+});
 
-  // --- 計算ロジック ---
-  const getMonthTotal = (m) => {
-    return categories.value
-      .filter(c => c.id !== 'income')
-      .reduce((sum, cat) => sum + (Number(data[cat.id]?.[m]) || 0), 0)
-  }
-  const getMonthBalance = (m) => {
-    const income = Number(data['income']?.[m]) || 0
-    return income - getMonthTotal(m)
-  }
-  const getCategoryTotal = (id) => {
-    const months = data[id] || {}
-    return Object.values(months).reduce((sum, val) => sum + (Number(val) || 0), 0)
-  }
-  const totalIncome = () => getCategoryTotal('income')
-  const totalInvestment = () => getCategoryTotal('investment')
-  const totalOut = () => {
-    return categories.value
-      .filter(c => c.id !== 'income')
-      .reduce((sum, c) => sum + getCategoryTotal(c.id), 0)
-  }
-const openAdd = () => { editingCategory.value = { id: 'new', label: '' } }
-  // カテゴリの順番を入れ替える魔法
+watch(
+  data,
+  (newData) => {
+    localStorage.setItem('kakeibo_vue_data', JSON.stringify(newData));
+  },
+  { deep: true }
+);
+
+// --- 計算ロジック ---
+const getMonthTotal = (m) => {
+  return categories.value
+    .filter((c) => c.id !== 'income')
+    .reduce((sum, cat) => sum + (Number(data[cat.id]?.[m]) || 0), 0);
+};
+const getMonthBalance = (m) => {
+  const income = Number(data['income']?.[m]) || 0;
+  return income - getMonthTotal(m);
+};
+const getCategoryTotal = (id) => {
+  const months = data[id] || {};
+  return Object.values(months).reduce((sum, val) => sum + (Number(val) || 0), 0);
+};
+const totalIncome = () => getCategoryTotal('income');
+const totalInvestment = () => getCategoryTotal('investment');
+const totalOut = () => {
+  return categories.value.filter((c) => c.id !== 'income').reduce((sum, c) => sum + getCategoryTotal(c.id), 0);
+};
+const openAdd = () => {
+  editingCategory.value = { id: 'new', label: '' };
+};
+// カテゴリの順番を入れ替える魔法
 const moveCategory = (index, direction) => {
-  const newIndex = index + direction
-  
+  const newIndex = index + direction;
+
   // 範囲外（一番上より上、一番下より下）には動かせないようにする
-  if (newIndex < 0 || newIndex >= categories.value.length) return
-  
+  if (newIndex < 0 || newIndex >= categories.value.length) return;
+
   // 配列の中身を入れ替える
-  const temp = categories.value[index]
-  categories.value[index] = categories.value[newIndex]
-  categories.value[newIndex] = temp
-  
+  const temp = categories.value[index];
+  categories.value[index] = categories.value[newIndex];
+  categories.value[newIndex] = temp;
+
   // 並び替えた順番を保存する
-  localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value))
-}
+  localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value));
+};
 </script>
 <template>
   <div class="app-wrapper">
     <main class="main-content">
       <div class="card">
         <h1>年間収支シミュレーター</h1>
-        
+
         <div class="scroll-container">
           <div class="table-inner">
             <div class="month-header">
               <!-- <div class="header-spacer" style="width: 220px"></div> -->
-               <div class="header-spacer">
-    <div class="header-sort-placeholder"></div>
-    
-  </div>
+              <div class="header-spacer">
+                <div class="header-sort-placeholder"></div>
+              </div>
               <div v-for="m in 12" :key="m" class="month-header-label">{{ m }}月</div>
             </div>
 
@@ -123,12 +130,8 @@ const moveCategory = (index, direction) => {
               </div>
 
               <div class="row-content">
-                <MonthRow 
-                  :label="cat.label"
-                  :month-data="data[cat.id]"
-                  @click-label="openEdit(cat)"
-                />
-                <hr v-if="cat.id === 'investment'">
+                <MonthRow :label="cat.label" :month-data="data[cat.id]" @click-label="openEdit(cat)" />
+                <hr v-if="cat.id === 'investment'" />
               </div>
             </div>
 
@@ -137,7 +140,7 @@ const moveCategory = (index, direction) => {
               <div class="months">
                 <div v-for="m in 12" :key="m" class="month-total-cell">
                   {{ getMonthTotal(m).toLocaleString() }}
-                  <span class="total-unit">円</span> 
+                  <span class="total-unit">円</span>
                 </div>
               </div>
             </div>
@@ -145,76 +148,80 @@ const moveCategory = (index, direction) => {
             <div class="row balance-row">
               <label class="month-label sticky-label">手残り（収支）</label>
               <div class="months">
-                <div v-for="m in 12" :key="m" class="month-total-cell" :class="{ 'minus': getMonthBalance(m) < 0 }">
+                <div v-for="m in 12" :key="m" class="month-total-cell" :class="{ minus: getMonthBalance(m) < 0 }">
                   {{ getMonthBalance(m).toLocaleString() }}
-                  <span class="total-unit">円</span> 
+                  <span class="total-unit">円</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        
+
         <button @click="openAdd" class="add-btn">＋ カテゴリを追加</button>
-            <div class="result">
-      <p>年間収入合計: <span>{{ totalIncome().toLocaleString() }}</span> 円</p>
-      <p>年間投資合計: <span>{{ totalInvestment().toLocaleString() }}</span> 円</p>
-      <p>年間支出合計: <span>{{ totalOut().toLocaleString() }}</span> 円</p>
-      <p>年間手残り(収支): 
-        <span :class="{ 'minus': (totalIncome() - totalOut()) < 0 }">
-          {{ (totalIncome() - totalOut()).toLocaleString() }} 円
-        </span>
-      </p>
-    </div>
+        <div class="result">
+          <p>
+            年間収入合計: <span>{{ totalIncome().toLocaleString() }}</span> 円
+          </p>
+          <p>
+            年間投資合計:
+            <span>{{ totalInvestment().toLocaleString() }}</span> 円
+          </p>
+          <p>
+            年間支出合計: <span>{{ totalOut().toLocaleString() }}</span> 円
+          </p>
+          <p>
+            年間手残り(収支):
+            <span :class="{ minus: totalIncome() - totalOut() < 0 }">
+              {{ (totalIncome() - totalOut()).toLocaleString() }} 円
+            </span>
+          </p>
+        </div>
       </div>
     </main>
 
-
-
-    <EditModal 
-      v-model="editingCategory"
-      @save="saveEdit"
-      @delete="deleteFromEdit"
-      @close="editingCategory = null"
-    />
+    <EditModal v-model="editingCategory" @save="saveEdit" @delete="deleteFromEdit" @close="editingCategory = null" />
   </div>
 </template>
 
 <style scoped>
 .app-wrapper {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
 }
 
-input, button, select, textarea {
+input,
+button,
+select,
+textarea {
   font-family: inherit;
 }
-  h1{
-            margin-top: 0px;
-  }
+h1 {
+  margin-top: 0px;
+}
 .main-content {
   flex: 1;
 }
 
-.card { 
-  max-width: 98%; 
-  margin: 10px auto; 
-  padding: 20px; 
-  background-color: white; 
-  color: #333; 
+.card {
+  max-width: 98%;
+  margin: 10px auto;
+  padding: 20px;
+  background-color: white;
+  color: #333;
 }
 
-.scroll-container { 
-  overflow-x: auto; 
-  overflow-y: visible; 
+.scroll-container {
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
-.month-header { 
-  display: flex; 
-  gap: 5px; 
-  margin-bottom: 10px; 
-  min-width: max-content; 
+.month-header {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 10px;
+  min-width: max-content;
 }
 
 .header-spacer {
@@ -224,26 +231,31 @@ input, button, select, textarea {
   left: 0;
   background-color: white;
   z-index: 30;
-    display: flex;
+  display: flex;
   align-items: center;
-  gap: 10px;      
+  gap: 10px;
 }
 
-.month-header-label { 
-  width: 120px; 
+.month-header-label {
+  width: 120px;
   font-size: 16px;
   font-weight: bold;
-  text-align: center; 
-  flex-shrink: 0; 
+  text-align: center;
+  flex-shrink: 0;
   color: #555;
 }
 
-hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
+hr {
+  margin: 15px 0;
+  border: 0;
+  border-top: 1px solid #ddd;
+}
 
-.total-row, .balance-row {
+.total-row,
+.balance-row {
   display: flex;
   align-items: center;
-  min-width: max-content; 
+  min-width: max-content;
 }
 
 .total-row {
@@ -286,7 +298,9 @@ hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
   z-index: 10;
 }
 
-.minus { color: #ff4d4d !important; }
+.minus {
+  color: #ff4d4d !important;
+}
 .total-unit {
   font-size: 14px;
   color: #999;
@@ -294,16 +308,15 @@ hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
   font-weight: normal;
 }
 
-.result { 
-  
-  padding: 20px; 
-  background-color: #f9f9f9; 
+.result {
+  padding: 20px;
+  background-color: #f9f9f9;
   padding-bottom: calc(1rem + env(safe-area-inset-bottom));
 }
 
-.result p { 
-  margin: 10px 0; 
-  font-weight: bold; 
+.result p {
+  margin: 10px 0;
+  font-weight: bold;
   font-size: 20px;
 }
 
@@ -322,7 +335,7 @@ hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
   cursor: pointer;
 }
 .header-sort-placeholder {
-  width: 30px;      /* 🚀 MonthRowの .sort-buttons の幅に合わせる */
+  width: 30px; /* 🚀 MonthRowの .sort-buttons の幅に合わせる */
   flex-shrink: 0;
 }
 
@@ -337,8 +350,8 @@ hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
   flex-direction: column;
   gap: 2px;
   min-width: max-content; /* 横に突き抜けても崩れないように */
-  width: 30px;         /* ボタンエリアの幅を固定 */
-  flex-shrink: 0;      /* 潰れないように固定 */
+  width: 30px; /* ボタンエリアの幅を固定 */
+  flex-shrink: 0; /* 潰れないように固定 */
 }
 
 .sort-buttons button {
@@ -351,7 +364,7 @@ hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
 }
 
 .row-content {
-  flex-grow: 1;        /* 残りの幅を全部使う */
+  flex-grow: 1; /* 残りの幅を全部使う */
 }
 
 .sort-buttons button:disabled {
@@ -360,26 +373,30 @@ hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
 }
 
 @media (max-width: 768px) {
-  .card { margin: 0; padding: 10px; max-width: 100%; border-radius: 0; }
-  .sticky-label, .header-spacer {
-    position: static ;
+  .card {
+    margin: 0;
+    padding: 10px;
+    max-width: 100%;
+    border-radius: 0;
+  }
+  .sticky-label,
+  .header-spacer {
+    position: static;
     width: 160px;
     background-color: transparent;
   }
 
-  h1{
+  h1 {
     font-size: 24px;
-            margin-top: 10px;
+    margin-top: 10px;
   }
-.result {
+  .result {
     margin: 0;
     padding: 10px 20px;
   }
 
-.result p {
-    font-size: 16px; 
+  .result p {
+    font-size: 16px;
   }
 }
-
-
 </style>
