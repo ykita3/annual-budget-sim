@@ -108,7 +108,11 @@ const moveCategory = (index, direction) => {
         <div class="scroll-container">
           <div class="table-inner">
             <div class="month-header">
-              <div class="header-spacer" style="width: 220px"></div>
+              <!-- <div class="header-spacer" style="width: 220px"></div> -->
+               <div class="header-spacer">
+    <div class="header-sort-placeholder"></div>
+    
+  </div>
               <div v-for="m in 12" :key="m" class="month-header-label">{{ m }}月</div>
             </div>
 
@@ -151,10 +155,7 @@ const moveCategory = (index, direction) => {
         </div>
         
         <button @click="openAdd" class="add-btn">＋ カテゴリを追加</button>
-      </div>
-    </main>
-
-    <div class="result">
+            <div class="result">
       <p>年間収入合計: <span>{{ totalIncome().toLocaleString() }}</span> 円</p>
       <p>年間投資合計: <span>{{ totalInvestment().toLocaleString() }}</span> 円</p>
       <p>年間支出合計: <span>{{ totalOut().toLocaleString() }}</span> 円</p>
@@ -164,6 +165,10 @@ const moveCategory = (index, direction) => {
         </span>
       </p>
     </div>
+      </div>
+    </main>
+
+
 
     <EditModal 
       v-model="editingCategory"
@@ -185,14 +190,16 @@ const moveCategory = (index, direction) => {
 input, button, select, textarea {
   font-family: inherit;
 }
-
+  h1{
+            margin-top: 0px;
+  }
 .main-content {
   flex: 1;
 }
 
 .card { 
   max-width: 98%; 
-  margin: 20px auto; 
+  margin: 10px auto; 
   padding: 20px; 
   background-color: white; 
   color: #333; 
@@ -201,7 +208,6 @@ input, button, select, textarea {
 .scroll-container { 
   overflow-x: auto; 
   overflow-y: visible; 
-  padding-bottom: 20px;
 }
 
 .month-header { 
@@ -212,12 +218,15 @@ input, button, select, textarea {
 }
 
 .header-spacer {
-  width: 180px;
+  width: 220px;
   flex-shrink: 0;
   position: sticky;
   left: 0;
   background-color: white;
   z-index: 30;
+    display: flex;
+  align-items: center;
+  gap: 10px;      
 }
 
 .month-header-label { 
@@ -286,10 +295,10 @@ hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
 }
 
 .result { 
+  
   padding: 20px; 
   background-color: #f9f9f9; 
   padding-bottom: calc(1rem + env(safe-area-inset-bottom));
-  margin: 0 20px;
 }
 
 .result p { 
@@ -304,7 +313,7 @@ hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
 }
 
 .add-btn {
-  margin-top: 20px;
+  margin: 30px 0;
   padding: 10px 20px;
   background-color: #4caf50;
   color: white;
@@ -312,27 +321,11 @@ hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
   border-radius: 4px;
   cursor: pointer;
 }
-
-@media (max-width: 768px) {
-  .card { margin: 0; padding: 10px; max-width: 100%; border-radius: 0; }
-  .sticky-label, .header-spacer {
-    position: static !important;
-    width: 120px !important;
-    min-width: 120px !important;
-    background-color: transparent !important;
-  }
-  h1{
-    font-size: 24px;
-  }
-.result {
-    margin: 0;
-    padding: 10px 20px;
-  }
-
-.result p {
-    font-size: 16px; 
-  }
+.header-sort-placeholder {
+  width: 30px;      /* 🚀 MonthRowの .sort-buttons の幅に合わせる */
+  flex-shrink: 0;
 }
+
 .category-row-wrapper {
   display: flex;
   align-items: center;
@@ -365,4 +358,28 @@ hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
   opacity: 0.3;
   cursor: not-allowed;
 }
+
+@media (max-width: 768px) {
+  .card { margin: 0; padding: 10px; max-width: 100%; border-radius: 0; }
+  .sticky-label, .header-spacer {
+    position: static ;
+    width: 160px;
+    background-color: transparent;
+  }
+
+  h1{
+    font-size: 24px;
+            margin-top: 10px;
+  }
+.result {
+    margin: 0;
+    padding: 10px 20px;
+  }
+
+.result p {
+    font-size: 16px; 
+  }
+}
+
+
 </style>
