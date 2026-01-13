@@ -5,8 +5,25 @@ const props = defineProps({
   monthData: Object
 })
 
-// 親に「クリックされたよ」と伝えるための設定
 const emit = defineEmits(['click-label'])
+
+// 【追加】3桁カンマを付ける表示用の関数
+const format = (val) => {
+  if (val === undefined || val === null || val === '') return ''
+  // カンマを付けて返す
+  return Number(val).toLocaleString()
+}
+
+// 【追加】入力された時にカンマを取り除いて数字だけを保存する関数
+const handleInput = (m, e) => {
+  const rawValue = e.target.value
+  // 数字以外（カンマなど）を全部消す
+  const numValue = rawValue.replace(/[^\d]/g, '')
+  
+  // 親のデータを更新（App.vueのdataと連動）
+  // 空文字なら空、数字があるなら数値型にして保存
+  props.monthData[m] = numValue === '' ? '' : Number(numValue)
+}
 </script>
 
 <template>
@@ -18,11 +35,12 @@ const emit = defineEmits(['click-label'])
   <div class="months">
     <div v-for="m in 12" :key="m" class="month-input">
       <input 
-  type="text" 
-  inputmode="numeric" 
-  pattern="\d*"
-  v-model="monthData[m]"
->
+        type="text" 
+        inputmode="numeric" 
+        pattern="\d*"
+        :value="format(monthData[m])"
+        @input="handleInput(m, $event)"
+      >
       <span class="unit">円</span>
     </div>
   </div>
@@ -30,6 +48,7 @@ const emit = defineEmits(['click-label'])
 </template>
 
 <style scoped>
+/* --- スタイルは君の元のコードを完全キープ！ --- */
 .row { 
   display: flex; 
   align-items: center; 
@@ -50,13 +69,12 @@ const emit = defineEmits(['click-label'])
   height: 40px; 
   display: flex;
   align-items: center;
-  cursor: pointer; /* 「押せる」という安心感 */
+  cursor: pointer;
   padding: 0 10px;
   transition: all 0.2s;
   border-radius: 4px;
 }
 
-/* ホバーした時に「あ、ここだ」とわかるように優しく色付け */
 .month-label:hover {
   background-color: #f5f5f5;
   color: #4caf50;
@@ -71,32 +89,26 @@ const emit = defineEmits(['click-label'])
   border: 1px solid #ddd; 
   border-radius: 4px;
   outline: none;
+  text-align: right; /* 【追加】金額なので右寄せにするとお母さんも見やすい！ */
+  font-family: sans-serif;
 }
 .month-input input:focus {
-  border-color: #4caf50; /* 入力中も癒やしのグリーンに */
+  border-color: #4caf50;
 }
 
 .unit{color: #999;
 font-size: 12px;
 margin-left: 8px;}
 
-/* MonthRow.vue の style の一番下に追加 */
-
 @media (max-width: 768px) {
   .month-label {
-    /* スマホの時は固定を解除！ */
     position: static !important; 
-    /* 幅も少し詰めると入力欄が見やすくなるよ */
     width: 120px !important; 
     min-width: 120px !important;
     background-color: transparent !important;
   }
-  
   .row {
-    /* ラベルが固定されないので、横に長く並ぶようにする */
     min-width: max-content;
   }
-
-      
 }
 </style>

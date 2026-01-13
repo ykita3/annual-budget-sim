@@ -82,9 +82,23 @@
       .filter(c => c.id !== 'income')
       .reduce((sum, c) => sum + getCategoryTotal(c.id), 0)
   }
-  const openAdd = () => { editingCategory.value = { id: 'new', label: '' } }
+const openAdd = () => { editingCategory.value = { id: 'new', label: '' } }
+  // カテゴリの順番を入れ替える魔法
+const moveCategory = (index, direction) => {
+  const newIndex = index + direction
+  
+  // 範囲外（一番上より上、一番下より下）には動かせないようにする
+  if (newIndex < 0 || newIndex >= categories.value.length) return
+  
+  // 配列の中身を入れ替える
+  const temp = categories.value[index]
+  categories.value[index] = categories.value[newIndex]
+  categories.value[newIndex] = temp
+  
+  // 並び替えた順番を保存する
+  localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value))
+}
 </script>
-
 <template>
   <div class="app-wrapper">
     <main class="main-content">
@@ -94,17 +108,24 @@
         <div class="scroll-container">
           <div class="table-inner">
             <div class="month-header">
-              <div class="header-spacer" style="width: 180px"></div>
+              <div class="header-spacer" style="width: 220px"></div>
               <div v-for="m in 12" :key="m" class="month-header-label">{{ m }}月</div>
             </div>
 
-            <div v-for="cat in categories" :key="cat.id">
-              <MonthRow 
-                :label="cat.label"
-                :month-data="data[cat.id]"
-                @click-label="openEdit(cat)"
-              />
-              <hr v-if="cat.id === 'investment'">
+            <div v-for="(cat, index) in categories" :key="cat.id" class="category-row-wrapper">
+              <div class="sort-buttons">
+                <button @click="moveCategory(index, -1)" :disabled="index === 0">▲</button>
+                <button @click="moveCategory(index, 1)" :disabled="index === categories.length - 1">▼</button>
+              </div>
+
+              <div class="row-content">
+                <MonthRow 
+                  :label="cat.label"
+                  :month-data="data[cat.id]"
+                  @click-label="openEdit(cat)"
+                />
+                <hr v-if="cat.id === 'investment'">
+              </div>
             </div>
 
             <div class="row total-row">
@@ -134,6 +155,7 @@
     </main>
 
     <div class="result">
+      <p>年間収入合計: <span>{{ totalIncome().toLocaleString() }}</span> 円</p>
       <p>年間投資合計: <span>{{ totalInvestment().toLocaleString() }}</span> 円</p>
       <p>年間支出合計: <span>{{ totalOut().toLocaleString() }}</span> 円</p>
       <p>年間手残り(収支): 
@@ -154,9 +176,14 @@
 
 <style scoped>
 .app-wrapper {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   display: flex;
   flex-direction: column;
-  min-height: 10vh;
+  min-height: 100vh;
+}
+
+input, button, select, textarea {
+  font-family: inherit;
 }
 
 .main-content {
@@ -303,8 +330,39 @@ hr { margin: 15px 0; border: 0; border-top: 1px solid #ddd; }
   }
 
 .result p {
-    font-size: 16px;  /* スマホでは14pxまで下げると、1行にスッキリ収まるよ */
-    /* margin: 4px 0; */
+    font-size: 16px; 
   }
+}
+.category-row-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sort-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: max-content; /* 横に突き抜けても崩れないように */
+  width: 30px;         /* ボタンエリアの幅を固定 */
+  flex-shrink: 0;      /* 潰れないように固定 */
+}
+
+.sort-buttons button {
+  padding: 2px 5px;
+  font-size: 10px;
+  cursor: pointer;
+  background: #eee;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+}
+
+.row-content {
+  flex-grow: 1;        /* 残りの幅を全部使う */
+}
+
+.sort-buttons button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 </style>
