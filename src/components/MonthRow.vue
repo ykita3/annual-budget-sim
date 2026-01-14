@@ -14,11 +14,13 @@ const format = (val) => {
   if (val === undefined || val === null || val === '') return '';
   return Number(val).toLocaleString();
 };
-
 const handleInput = (m, e) => {
   const rawValue = e.target.value;
+  // 数字以外を除去
   const numValue = rawValue.replace(/[^\d]/g, '');
-  props.monthData[m] = numValue === '' ? '' : Number(numValue);
+
+  // 空っぽなら 0、そうでなければ数値に変換して代入
+  props.monthData[m] = numValue === '' ? 0 : Number(numValue);
 };
 
 const isSelected = (m) => props.selectedMonthKeys.includes(m);
@@ -26,10 +28,6 @@ const isSelected = (m) => props.selectedMonthKeys.includes(m);
 
 <template>
   <div class="row-inner">
-    <!-- <label class="month-label" @click="emit('click-label')"> -->
-    {{ label }}
-    <!-- </label> -->
-
     <div class="months">
       <div
         v-for="m in 12"
@@ -45,7 +43,6 @@ const isSelected = (m) => props.selectedMonthKeys.includes(m);
           pattern="\d*"
           :value="format(monthData[m])"
           @input="handleInput(m, $event)"
-          @mousedown.stop="emit('mousedown-cell', m, $event)"
         />
         <span class="unit">円</span>
       </div>
@@ -98,7 +95,8 @@ const isSelected = (m) => props.selectedMonthKeys.includes(m);
   transition: all 0.2s;
   cursor: cell;
   position: relative;
-  justify-content: center; /* 中の input を中央寄せ */
+  /* justify-content: center;  */
+  /* padding: 4px 8px;  */
 }
 
 .month-input-container input {
@@ -110,6 +108,7 @@ const isSelected = (m) => props.selectedMonthKeys.includes(m);
   background: transparent;
   position: relative;
   z-index: 2;
+  cursor: text;
 }
 
 .is-selected {
@@ -122,5 +121,15 @@ const isSelected = (m) => props.selectedMonthKeys.includes(m);
   color: #999;
   font-size: 12px;
   margin-left: 8px;
+}
+.is-dragging input {
+  pointer-events: none !important;
+  user-select: none !important;
+}
+.month-input-container:has(~ .is-dragging) input,
+:host-context(.is-dragging) input,
+.is-dragging input {
+  pointer-events: none !important;
+  user-select: none !important;
 }
 </style>

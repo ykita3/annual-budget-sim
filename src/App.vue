@@ -19,6 +19,10 @@ const categories = ref(
 // --- データ管理 ---
 const initialState = categories.value.reduce((acc, cat) => {
   acc[cat.id] = {};
+  // 1〜12月すべてに 0 を入れる
+  for (let m = 1; m <= 12; m++) {
+    acc[cat.id][m] = 0;
+  }
   return acc;
 }, {});
 const savedData = JSON.parse(localStorage.getItem('kakeibo_vue_data'));
@@ -26,6 +30,17 @@ const data = reactive(savedData || initialState);
 
 categories.value.forEach((cat) => {
   if (!data[cat.id]) data[cat.id] = {};
+});
+
+categories.value.forEach((cat) => {
+  if (!data[cat.id]) data[cat.id] = {};
+
+  // 1〜12月をループして、値がない（undefined）なら 0 をセット
+  for (let m = 1; m <= 12; m++) {
+    if (data[cat.id][m] === undefined || data[cat.id][m] === null || data[cat.id][m] === '') {
+      data[cat.id][m] = 0;
+    }
+  }
 });
 
 watch(
@@ -101,15 +116,26 @@ const selectedCells = ref([]);
 const isDragging = ref(false);
 const startCell = ref(null);
 
+/* App.vue の startSelect 内の修正 */
 const startSelect = (catId, month, event) => {
+  // 1. まずドラッグフラグを立てる
   isDragging.value = true;
+
+  // 2. 🌟 強制的に「今入力中だったやつ」のカーソルを消す
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+
+  // 3. ブラウザが勝手にテキスト（円とかラベル）を選択するのを防ぐ
+  window.getSelection()?.removeAllRanges();
+
+  // 4. 選択範囲の更新
   if (!(event.ctrlKey || event.metaKey)) {
     selectedCells.value = [];
   }
   startCell.value = { catId, month };
   updateSelectionRange(catId, month);
 };
-
 const handleMouseEnter = (catId, month) => {
   if (isDragging.value && startCell.value) {
     updateSelectionRange(catId, month);
@@ -141,12 +167,19 @@ const stopDragging = () => {
 };
 
 // --- コピー＆ペースト ---
+const isCopying = ref(false); // 🌟コピー状態を管理するフラグを追加
+
 const copyToClipboard = async () => {
   if (selectedCells.value.length === 0) return;
-  // 選択順ではなく、カレンダー的な並び順でコピーされるようにソートすると綺麗だよ
+
   const textToCopy = selectedCells.value.map((cell) => data[cell.catId][cell.month] || 0).join('\n');
   await navigator.clipboard.writeText(textToCopy);
-  alert('コピーしたよ！');
+
+  // 🌟アラートを消して、代わりにボタンの文字を一時的に変える
+  isCopying.value = true;
+  setTimeout(() => {
+    isCopying.value = false;
+  }, 1000); // 1秒後に元に戻す
 };
 
 const pasteFromClipboard = async () => {
@@ -236,10 +269,10 @@ onMounted(() => {
         <h1>年間収支シミュレーター</h1>
 
         <div class="action-bar">
-          <button @click="copyToClipboard" class="action-btn copy no-mobile" :disabled="selectedCells.length === 0">
+          <button @click="copyToClipboard" class="action-btn copy" :disabled="selectedCells.length === 0">
             📋 コピー
           </button>
-          <button @click="pasteFromClipboard" class="action-btn paste no-mobile" :disabled="selectedCells.length === 0">
+          <button @click="pasteFromClipboard" class="action-btn paste" :disabled="selectedCells.length === 0">
             📥 貼り付け
           </button>
           <button @click="selectedCells = []" class="action-btn clear" :disabled="selectedCells.length === 0">
@@ -269,6 +302,7 @@ onMounted(() => {
               </div>
 
               <MonthRow
+                :class="{ 'is-dragging': isDragging }"
                 :month-data="data[cat.id]"
                 :selected-month-keys="selectedCells.filter((c) => c.catId === cat.id).map((c) => c.month)"
                 @mousedown-cell="(m, event) => startSelect(cat.id, m, event)"
@@ -287,7 +321,7 @@ onMounted(() => {
             </div>
 
             <div class="row balance-row">
-              <label class="month-label sticky-label">手残り（収支）</label>
+              <label class="month-label sticky-label bg-primary">手残り（収支）</label>
               <div class="months">
                 <div v-for="m in 12" :key="m" class="month-total-cell" :class="{ minus: getMonthBalance(m) < 0 }">
                   {{ getMonthBalance(m).toLocaleString() }}<span class="total-unit">円</span>
@@ -360,6 +394,11 @@ h1 {
   position: relative; /* 子の sticky の基準になる */
 }
 
+.scroll-container.is-dragging {
+  user-select: none; /* ドラッグ中に周りの文字が青く光るのを防ぐ */
+  pointer-events: all;
+}
+
 .month-header {
   display: flex;
   /* gap: 20px; */
@@ -368,7 +407,7 @@ h1 {
 }
 
 .header-spacer {
-  width: 220px;
+  width: 243px;
   flex-shrink: 0;
   position: sticky;
   left: 0;
@@ -376,7 +415,6 @@ h1 {
   z-index: 30;
   display: flex;
   align-items: center;
-  /* gap: 10px; */
 }
 
 .month-header-label {
@@ -395,6 +433,10 @@ hr {
   border-top: 1px solid #ddd;
 }
 
+.is-dragging input {
+  pointer-events: none !important;
+}
+
 .total-row,
 .balance-row {
   display: flex;
@@ -411,7 +453,7 @@ hr {
 }
 
 .balance-row {
-  background-color: #f0f9f0;
+  background-color: #f0f9f0 !important;
   padding: 10px 0;
   font-weight: bold;
 }
@@ -433,7 +475,7 @@ hr {
   width: 180px;
   font-size: 18px;
   flex-shrink: 0;
-  padding-left: 10px;
+  padding: 0 10px;
   background-color: transparent; /* 親の背景色(白)を活かす */
   z-index: auto; /* 親の z-index に任せる */
 }
@@ -470,10 +512,11 @@ hr {
 .table-inner {
   display: inline-block;
   min-width: 100%;
+  margin-bottom: 20px;
 }
 
 .add-btn {
-  margin: 30px 0;
+  margin: 10px 0 30px;
   padding: 10px 20px;
   background-color: #4caf50;
   color: white;
@@ -489,25 +532,24 @@ hr {
 .category-row-wrapper {
   display: flex;
   align-items: center;
-  gap: 10px;
 }
 
 .sort-buttons {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: max-content; /* 横に突き抜けても崩れないように */
   width: 30px; /* ボタンエリアの幅を固定 */
   flex-shrink: 0; /* 潰れないように固定 */
 }
 
 .sort-buttons button {
-  padding: 2px 5px;
-  font-size: 10px;
+  padding: 2px 0;
+  font-size: 12px;
   cursor: pointer;
   background: #eee;
-  border: 1px solid #ccc;
-  border-radius: 3px;
+  border: none;
+  border-radius: 15px;
 }
 
 .row-content {
@@ -589,14 +631,6 @@ hr {
 }
 
 /* 2. ヘッダー（○月）の左側の余白を、下の固定エリアの幅に合わせる */
-.header-spacer {
-  width: 240px;
-  flex-shrink: 0;
-  position: sticky;
-  left: 0;
-  z-index: 30;
-  background-color: white;
-}
 
 /* 3. 合計行も同じように固定されるようにクラスを追加（もし必要なら） */
 .total-row,
@@ -619,19 +653,26 @@ hr {
   flex-shrink: 0;
 }
 
-/* 4. スマホ時は固定を解除（以前のメディアクエリに合わせる） */
+.bg-primary {
+  --row-bg: #f0f9f0;
+}
+
+/* クラスがついた要素自体と、その中の固定エリアに色を適用 */
+.bg-primary,
+.bg-primary .sticky-side-area,
+.bg-primary .month-label {
+  background-color: var(--row-bg) !important; /* ★こっちに important をつける！ */
+}
+
 @media (max-width: 768px) {
   .sticky-side-area,
   .header-spacer,
   .total-row .month-label,
   .balance-row .month-label {
     position: static;
-    width: 220px;
+    width: 140px;
     box-shadow: none;
   }
-}
-
-@media (max-width: 768px) {
   .no-mobile {
     display: none !important;
   }
@@ -644,9 +685,14 @@ hr {
   .sticky-label,
   .header-spacer {
     position: static;
-    width: 220px;
+    width: 115px;
     background-color: transparent;
-    padding-right: 15px;
+    padding-right: 21px;
+  }
+
+  .month-label {
+    width: 100px;
+    padding: 0 5px;
   }
 
   h1 {
