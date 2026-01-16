@@ -18,9 +18,9 @@ const handleInput = (m, e) => {
   const rawValue = e.target.value;
   // 数字以外を除去
   const numValue = rawValue.replace(/[^\d]/g, '');
-
+  const finalVal = numValue === '' ? 0 : Number(numValue);
   // 空っぽなら 0、そうでなければ数値に変換して代入
-  props.monthData[m] = numValue === '' ? 0 : Number(numValue);
+  emit('update:monthData', { ...props.monthData, [m]: finalVal });
 };
 
 const isSelected = (m) => props.selectedMonthKeys.includes(m);

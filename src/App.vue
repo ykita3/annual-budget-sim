@@ -339,6 +339,7 @@ onMounted(() => {
                   :selected-month-keys="selectedCells.filter((c) => c.catId === cat.id).map((c) => c.month)"
                   @mousedown-cell="(m, event) => startSelect(cat.id, m, event)"
                   @mouse-enter-cell="(m) => handleMouseEnter(cat.id, m)"
+                  @update:monthData="data[cat.id] = $event"
                 />
                 <hr v-if="cat.id === 'investment'" class="row-divider" />
               </div>
