@@ -2,6 +2,13 @@
 import { ref, reactive, watch, onMounted, onUnmounted } from 'vue';
 import MonthRow from './components/MonthRow.vue';
 import EditModal from './components/EditModal.vue';
+// Firebaseのインポート
+import { auth, googleProvider, db } from './firebase';
+import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+
+// --- ユーザー管理 ---
+const user = ref(null);
 
 // --- カテゴリ管理 ---
 const savedCategories = JSON.parse(localStorage.getItem('kakeibo_categories'));
@@ -19,7 +26,6 @@ const categories = ref(
 // --- データ管理 ---
 const initialState = categories.value.reduce((acc, cat) => {
   acc[cat.id] = {};
-  // 1〜12月すべてに 0 を入れる
   for (let m = 1; m <= 12; m++) {
     acc[cat.id][m] = 0;
   }
@@ -28,14 +34,9 @@ const initialState = categories.value.reduce((acc, cat) => {
 const savedData = JSON.parse(localStorage.getItem('kakeibo_vue_data'));
 const data = reactive(savedData || initialState);
 
+// データの初期化チェック
 categories.value.forEach((cat) => {
   if (!data[cat.id]) data[cat.id] = {};
-});
-
-categories.value.forEach((cat) => {
-  if (!data[cat.id]) data[cat.id] = {};
-
-  // 1〜12月をループして、値がない（undefined）なら 0 をセット
   for (let m = 1; m <= 12; m++) {
     if (data[cat.id][m] === undefined || data[cat.id][m] === null || data[cat.id][m] === '') {
       data[cat.id][m] = 0;
@@ -43,15 +44,44 @@ categories.value.forEach((cat) => {
   }
 });
 
+// --- App.vue の watch 部分を少し賢くする ---
 watch(
   data,
-  (newData) => {
-    localStorage.setItem('kakeibo_vue_data', JSON.stringify(newData));
+  async (newData) => {
+    // 🌟 user.value がいて、かつ「今まさに読み込み中」じゃない時だけ保存する
+    // （今回はシンプルに user.value のチェックだけでも動くから、まずはこのままでもOK！）
+    if (user.value) {
+      try {
+        await setDoc(doc(db, 'users', user.value.uid), {
+          kakeibo_data: newData,
+          categories: categories.value,
+        });
+      } catch (e) {
+        console.error('保存失敗:', e);
+      }
+    } else {
+      localStorage.setItem('kakeibo_vue_data', JSON.stringify(newData));
+    }
   },
   { deep: true }
 );
 
-// --- 編集・削除ロジック (省略せず維持) ---
+// --- 認証ロジック ---
+const login = async () => {
+  try {
+    await signInWithPopup(auth, googleProvider);
+  } catch (err) {
+    console.error('ログインエラー:', err);
+  }
+};
+
+const logout = async () => {
+  if (confirm('ログアウトする？')) {
+    await signOut(auth);
+  }
+};
+
+// --- 編集・削除ロジック ---
 const editingCategory = ref(null);
 const openEdit = (cat) => {
   editingCategory.value = { ...cat };
@@ -85,7 +115,7 @@ const deleteFromEdit = () => {
   editingCategory.value = null;
 };
 
-// --- 計算・移動ロジック ---
+// --- 計算ロジック ---
 const getMonthTotal = (m) =>
   categories.value.filter((c) => c.id !== 'income').reduce((sum, cat) => sum + (Number(data[cat.id]?.[m]) || 0), 0);
 const getMonthBalance = (m) => (Number(data['income']?.[m]) || 0) - getMonthTotal(m);
@@ -111,46 +141,29 @@ const moveCategory = (index, direction) => {
   localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value));
 };
 
-// --- ★選択・コピー・ドラッグロジック (ここを整理！) ---
+// --- 選択・ドラッグロジック ---
 const selectedCells = ref([]);
 const isDragging = ref(false);
 const startCell = ref(null);
 
-/* App.vue の startSelect 内の修正 */
 const startSelect = (catId, month, event) => {
-  // 1. まずドラッグフラグを立てる
   isDragging.value = true;
-
-  // 2. 🌟 強制的に「今入力中だったやつ」のカーソルを消す
-  if (document.activeElement instanceof HTMLElement) {
-    document.activeElement.blur();
-  }
-
-  // 3. ブラウザが勝手にテキスト（円とかラベル）を選択するのを防ぐ
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   window.getSelection()?.removeAllRanges();
-
-  // 4. 選択範囲の更新
-  if (!(event.ctrlKey || event.metaKey)) {
-    selectedCells.value = [];
-  }
+  if (!(event.ctrlKey || event.metaKey)) selectedCells.value = [];
   startCell.value = { catId, month };
   updateSelectionRange(catId, month);
 };
 const handleMouseEnter = (catId, month) => {
-  if (isDragging.value && startCell.value) {
-    updateSelectionRange(catId, month);
-  }
+  if (isDragging.value && startCell.value) updateSelectionRange(catId, month);
 };
-
 const updateSelectionRange = (currentCatId, currentMonth) => {
   const startCatIdx = categories.value.findIndex((c) => c.id === startCell.value.catId);
   const endCatIdx = categories.value.findIndex((c) => c.id === currentCatId);
-
   const minCat = Math.min(startCatIdx, endCatIdx);
   const maxCat = Math.max(startCatIdx, endCatIdx);
   const minMonth = Math.min(startCell.value.month, currentMonth);
   const maxMonth = Math.max(startCell.value.month, currentMonth);
-
   const newSelection = [];
   for (let i = minCat; i <= maxCat; i++) {
     const cid = categories.value[i].id;
@@ -160,100 +173,103 @@ const updateSelectionRange = (currentCatId, currentMonth) => {
   }
   selectedCells.value = newSelection;
 };
-
 const stopDragging = () => {
   isDragging.value = false;
   startCell.value = null;
 };
 
 // --- コピー＆ペースト ---
-const isCopying = ref(false); // 🌟コピー状態を管理するフラグを追加
-
+const isCopying = ref(false);
 const copyToClipboard = async () => {
   if (selectedCells.value.length === 0) return;
-
   const textToCopy = selectedCells.value.map((cell) => data[cell.catId][cell.month] || 0).join('\n');
   await navigator.clipboard.writeText(textToCopy);
-
-  // 🌟アラートを消して、代わりにボタンの文字を一時的に変える
   isCopying.value = true;
   setTimeout(() => {
     isCopying.value = false;
-  }, 1000); // 1秒後に元に戻す
+  }, 1000);
 };
 
 const pasteFromClipboard = async () => {
   if (selectedCells.value.length === 0) return;
-
   try {
     const text = await navigator.clipboard.readText();
-    // 改行、タブ、カンマ、空白類で分割し、空要素を除去
     const values = text
       .split(/[\n\r\t, 　]+/)
       .map((v) => v.trim())
       .filter((v) => v.length > 0);
-
     if (values.length === 0) return;
-
-    // 選択範囲を表示順にソート
     const sortedSelection = [...selectedCells.value].sort((a, b) => {
       const aCatIdx = categories.value.findIndex((c) => c.id === a.catId);
       const bCatIdx = categories.value.findIndex((c) => c.id === b.catId);
       if (aCatIdx !== bCatIdx) return aCatIdx - bCatIdx;
       return a.month - b.month;
     });
-
     const isSingleValue = values.length === 1;
-
     sortedSelection.forEach((cell, index) => {
-      // 1つのコピーなら全部に同じ値を、複数なら順番に適用
       const valToPaste = isSingleValue ? values[0] : values[index];
-
       if (valToPaste !== undefined) {
         const num = Number(valToPaste.replace(/[^\d.-]/g, ''));
-        if (!isNaN(num)) {
-          data[cell.catId][cell.month] = num;
-        }
+        if (!isNaN(num)) data[cell.catId][cell.month] = num;
       }
     });
-
-    // 成功アラートを消すと、Excelのようにサクサク操作できるよ！
   } catch (err) {
     console.error('貼り付けエラー:', err);
   }
 };
 
+// --- ライフサイクル (ここを1つに統合！) ---
+// --- ライフサイクル ---
 onMounted(() => {
+  // Firebase監視
+  onAuthStateChanged(auth, async (currentUser) => {
+    console.log('Auth State Changed:', currentUser);
+    user.value = currentUser;
+
+    if (currentUser) {
+      // 🌟 ログイン成功時、Firestore からデータを取得
+      try {
+        const docRef = doc(db, 'users', currentUser.uid);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const cloudData = docSnap.data();
+          // データを reactive な data にコピー
+          if (cloudData.kakeibo_data) {
+            Object.assign(data, cloudData.kakeibo_data);
+          }
+          if (cloudData.categories) {
+            categories.value = cloudData.categories;
+          }
+          console.log('クラウドからデータを読み込んだよ！');
+        }
+      } catch (err) {
+        console.error('データ取得エラー:', err);
+      }
+    }
+  });
+
   window.addEventListener('mouseup', stopDragging);
 
   const handleKey = (e) => {
-    // 選択されているセルがあるか確認
     if (selectedCells.value.length === 0) return;
-
-    // コピー (Ctrl+C)
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
       e.preventDefault();
       copyToClipboard();
     }
-
-    // 貼り付け (Ctrl+V)
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
       e.preventDefault();
       pasteFromClipboard();
     }
-
-    // 🌟 削除 (Delete または Backspace)
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      // 入力中の場合は邪魔しないように、input以外で押された時だけ動作させる
       if (e.target.tagName !== 'INPUT') {
         e.preventDefault();
         selectedCells.value.forEach((cell) => {
-          data[cell.catId][cell.month] = 0; // または空文字 '' にしたいならここを書き換えてね
+          data[cell.catId][cell.month] = 0;
         });
       }
     }
   };
-
   window.addEventListener('keydown', handleKey);
 
   onUnmounted(() => {
@@ -268,86 +284,104 @@ onMounted(() => {
       <div class="card">
         <h1>年間収支シミュレーター</h1>
 
-        <div class="action-bar">
-          <button @click="copyToClipboard" class="action-btn copy" :disabled="selectedCells.length === 0">
-            📋 コピー
-          </button>
-          <button @click="pasteFromClipboard" class="action-btn paste" :disabled="selectedCells.length === 0">
-            📥 貼り付け
-          </button>
-          <button @click="selectedCells = []" class="action-btn clear" :disabled="selectedCells.length === 0">
-            🧹 選択解除
-          </button>
-          <span v-if="selectedCells.length > 0" class="selection-info no-mobile">
-            {{ selectedCells.length }} 個のセルを選択中
-          </span>
+        <div v-if="!user" class="login-container">
+          <div class="login-box">
+            <p>データを保存・同期するにはログインが必要です。</p>
+            <button @click="login" class="action-btn login-btn">🔑 Googleでログイン</button>
+          </div>
         </div>
 
-        <div class="scroll-container">
-          <div class="table-inner">
-            <div class="month-header">
-              <div class="header-spacer">
-                <div class="header-sort-placeholder"></div>
-              </div>
-              <div v-for="m in 12" :key="m" class="month-header-label">{{ m }}月</div>
+        <div v-else>
+          <div class="auth-section">
+            <div class="user-info">
+              <img :src="user.photoURL" class="user-icon" referrerpolicy="no-referrer" />
+              <span class="user-name">{{ user.displayName }} さん</span>
+              <button @click="logout" class="action-btn logout-btn">ログアウト</button>
             </div>
+          </div>
 
-            <div v-for="(cat, index) in categories" :key="cat.id" class="category-row-wrapper">
-              <div class="sticky-side-area">
-                <div class="sort-buttons">
-                  <button @click="moveCategory(index, -1)" :disabled="index === 0">▲</button>
-                  <button @click="moveCategory(index, 1)" :disabled="index === categories.length - 1">▼</button>
+          <div class="action-bar">
+            <button @click="copyToClipboard" class="action-btn copy" :disabled="selectedCells.length === 0">
+              📋 コピー
+            </button>
+            <button @click="pasteFromClipboard" class="action-btn paste" :disabled="selectedCells.length === 0">
+              📥 貼り付け
+            </button>
+            <button @click="selectedCells = []" class="action-btn clear" :disabled="selectedCells.length === 0">
+              🧹 選択解除
+            </button>
+            <span v-if="selectedCells.length > 0" class="selection-info no-mobile">
+              {{ selectedCells.length }} 個のセルを選択中
+            </span>
+          </div>
+
+          <div class="scroll-container">
+            <div class="table-inner">
+              <div class="month-header">
+                <div class="header-spacer">
+                  <div class="header-sort-placeholder"></div>
                 </div>
-                <label class="month-label" @click="openEdit(cat)">{{ cat.label }}</label>
+                <div v-for="m in 12" :key="m" class="month-header-label">{{ m }}月</div>
               </div>
 
-              <MonthRow
-                :class="{ 'is-dragging': isDragging }"
-                :month-data="data[cat.id]"
-                :selected-month-keys="selectedCells.filter((c) => c.catId === cat.id).map((c) => c.month)"
-                @mousedown-cell="(m, event) => startSelect(cat.id, m, event)"
-                @mouse-enter-cell="(m) => handleMouseEnter(cat.id, m)"
-              />
-              <hr v-if="cat.id === 'investment'" class="row-divider" />
-            </div>
+              <div v-for="(cat, index) in categories" :key="cat.id" class="category-row-wrapper">
+                <div class="sticky-side-area">
+                  <div class="sort-buttons">
+                    <button @click="moveCategory(index, -1)" :disabled="index === 0">▲</button>
+                    <button @click="moveCategory(index, 1)" :disabled="index === categories.length - 1">▼</button>
+                  </div>
+                  <label class="month-label" @click="openEdit(cat)">{{ cat.label }}</label>
+                </div>
 
-            <div class="row total-row">
-              <label class="month-label sticky-label">支出合計</label>
-              <div class="months">
-                <div v-for="m in 12" :key="m" class="month-total-cell">
-                  {{ getMonthTotal(m).toLocaleString() }}<span class="total-unit">円</span>
+                <MonthRow
+                  :class="{ 'is-dragging': isDragging }"
+                  :month-data="data[cat.id]"
+                  :selected-month-keys="selectedCells.filter((c) => c.catId === cat.id).map((c) => c.month)"
+                  @mousedown-cell="(m, event) => startSelect(cat.id, m, event)"
+                  @mouse-enter-cell="(m) => handleMouseEnter(cat.id, m)"
+                />
+                <hr v-if="cat.id === 'investment'" class="row-divider" />
+              </div>
+
+              <div class="row total-row">
+                <label class="month-label sticky-label">支出合計</label>
+                <div class="months">
+                  <div v-for="m in 12" :key="m" class="month-total-cell">
+                    {{ getMonthTotal(m).toLocaleString() }}<span class="total-unit">円</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div class="row balance-row">
-              <label class="month-label sticky-label bg-primary">手残り（収支）</label>
-              <div class="months">
-                <div v-for="m in 12" :key="m" class="month-total-cell" :class="{ minus: getMonthBalance(m) < 0 }">
-                  {{ getMonthBalance(m).toLocaleString() }}<span class="total-unit">円</span>
+              <div class="row balance-row">
+                <label class="month-label sticky-label bg-primary">手残り（収支）</label>
+                <div class="months">
+                  <div v-for="m in 12" :key="m" class="month-total-cell" :class="{ minus: getMonthBalance(m) < 0 }">
+                    {{ getMonthBalance(m).toLocaleString() }}<span class="total-unit">円</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-        <button @click="openAdd" class="add-btn">＋ カテゴリを追加</button>
 
-        <div class="result">
-          <p>
-            年間収入合計: <span>{{ totalIncome().toLocaleString() }}</span> 円
-          </p>
-          <p>
-            年間投資合計: <span>{{ totalInvestment().toLocaleString() }}</span> 円
-          </p>
-          <p>
-            年間支出合計: <span>{{ totalOut().toLocaleString() }}</span> 円
-          </p>
-          <p>
-            年間手残り:
-            <span :class="{ minus: totalIncome() - totalOut() < 0 }">
-              {{ (totalIncome() - totalOut()).toLocaleString() }} 円
-            </span>
-          </p>
+          <button @click="openAdd" class="add-btn">＋ カテゴリを追加</button>
+
+          <div class="result">
+            <p>
+              年間収入合計: <span>{{ totalIncome().toLocaleString() }}</span> 円
+            </p>
+            <p>
+              年間投資合計: <span>{{ totalInvestment().toLocaleString() }}</span> 円
+            </p>
+            <p>
+              年間支出合計: <span>{{ totalOut().toLocaleString() }}</span> 円
+            </p>
+            <p>
+              年間手残り:
+              <span :class="{ minus: totalIncome() - totalOut() < 0 }">
+                {{ (totalIncome() - totalOut()).toLocaleString() }} 円
+              </span>
+            </p>
+          </div>
         </div>
       </div>
     </main>
@@ -663,7 +697,58 @@ hr {
 .bg-primary .month-label {
   background-color: var(--row-bg) !important; /* ★こっちに important をつける！ */
 }
+.auth-section {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px;
+  background: #fdfdfd;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 20px;
+}
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.user-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid #4caf50;
+}
+.user-name {
+  font-weight: bold;
+  font-size: 14px;
+}
 
+.logout-btn {
+  background-color: #f5f5f5;
+  color: #666;
+  font-size: 12px;
+}
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 60px 20px;
+  background-color: #f9f9f9;
+  border-radius: 12px;
+  margin-top: 20px;
+}
+.login-box {
+  text-align: center;
+}
+.login-box p {
+  margin-bottom: 20px;
+  color: #666;
+}
+.login-btn {
+  margin: 0 auto;
+  padding: 12px 24px;
+  font-size: 16px;
+  background-color: #4285f4;
+  color: white;
+}
 @media (max-width: 768px) {
   .sticky-side-area,
   .header-spacer,
