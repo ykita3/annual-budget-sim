@@ -120,7 +120,7 @@ const isSelected = (m) => props.selectedMonthKeys.includes(m);
 .unit {
   color: #999;
   font-size: 12px;
-  margin-left: 8px;
+  margin: 0 8px;
 }
 .is-dragging input {
   pointer-events: none !important;

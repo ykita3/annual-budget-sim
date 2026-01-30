@@ -498,7 +498,9 @@ hr {
   gap: 5px;
   flex-wrap: nowrap;
 }
-
+.month-header-label {
+  width: 116px;
+}
 .month-total-cell {
   width: 120px;
   text-align: right;
@@ -683,7 +685,7 @@ hr {
   z-index: 25;
   background-color: white;
   width: 230px; /* sticky-side-areaと同じ幅にする */
-  padding-left: 40px; /* 並び替えボタンがない分、少し右に寄せる */
+  padding-left: 20px; /* 並び替えボタンがない分、少し右に寄せる */
   box-sizing: border-box;
   flex-shrink: 0;
 }
@@ -771,14 +773,14 @@ hr {
   .sticky-label,
   .header-spacer {
     position: static;
-    width: 115px;
+    width: 116px;
     background-color: transparent;
     padding-right: 21px;
   }
 
   .month-label {
     width: 100px;
-    padding: 0 5px;
+    padding: 0;
   }
 
   h1 {
