@@ -1,14 +1,31 @@
 <script setup>
-import { ref, reactive, watch, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, watch, onMounted, onUnmounted, computed } from 'vue'; // 🌟 computedを追加
 import MonthRow from './components/MonthRow.vue';
 import EditModal from './components/EditModal.vue';
-// Firebaseのインポート
 import { auth, googleProvider, db } from './firebase';
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 // --- ユーザー管理 ---
 const user = ref(null);
+const showUserMenu = ref(false);
+
+const toggleUserMenu = () => {
+  showUserMenu.value = !showUserMenu.value;
+};
+
+const logout = async () => {
+  if (confirm('ログアウトする？')) {
+    showUserMenu.value = false;
+    await signOut(auth);
+  }
+};
+
+const closeMenu = (e) => {
+  if (showUserMenu.value && !e.target.closest('.user-info')) {
+    showUserMenu.value = false;
+  }
+};
 
 // --- カテゴリ管理 ---
 const savedCategories = JSON.parse(localStorage.getItem('kakeibo_categories'));
@@ -20,68 +37,150 @@ const categories = ref(
     { id: 'misc', label: '雑費/趣味/サブスク' },
     { id: 'play', label: '遊び' },
     { id: 'rent', label: '家賃' },
-  ]
+  ],
 );
 
-// --- データ管理 ---
-const initialState = categories.value.reduce((acc, cat) => {
-  acc[cat.id] = {};
-  for (let m = 1; m <= 12; m++) {
-    acc[cat.id][m] = 0;
-  }
-  return acc;
-}, {});
-const savedData = JSON.parse(localStorage.getItem('kakeibo_vue_data'));
-const data = reactive(savedData || initialState);
+const createEmptyData = () => {
+  return categories.value.reduce((acc, cat) => {
+    acc[cat.id] = {};
+    for (let m = 1; m <= 12; m++) acc[cat.id][m] = 0;
+    return acc;
+  }, {});
+};
 
-// データの初期化チェック
-categories.value.forEach((cat) => {
-  if (!data[cat.id]) data[cat.id] = {};
-  for (let m = 1; m <= 12; m++) {
-    if (data[cat.id][m] === undefined || data[cat.id][m] === null || data[cat.id][m] === '') {
-      data[cat.id][m] = 0;
-    }
-  }
-});
+// --- タブ・データ管理 ---
+const tabList = ref(['無題']);
+const currentTab = ref('無題');
+const allTabs = reactive({ 無題: createEmptyData() });
 
-// --- App.vue の watch 部分を少し賢くする ---
+// ローカル復元
+const savedData = JSON.parse(localStorage.getItem('kakeibo_vue_all_tabs'));
+const savedList = JSON.parse(localStorage.getItem('kakeibo_tab_list'));
+if (savedData && savedList) {
+  Object.keys(allTabs).forEach((key) => delete allTabs[key]);
+  Object.assign(allTabs, savedData);
+  tabList.value = savedList;
+  currentTab.value = tabList.value[0];
+}
+
+// 保存
 watch(
-  data,
-  async (newData) => {
-    // 🌟 user.value がいて、かつ「今まさに読み込み中」じゃない時だけ保存する
-    // （今回はシンプルに user.value のチェックだけでも動くから、まずはこのままでもOK！）
+  [allTabs, tabList, categories],
+  async () => {
     if (user.value) {
       try {
         await setDoc(doc(db, 'users', user.value.uid), {
-          kakeibo_data: newData,
+          all_tabs_data: allTabs,
+          tab_list: tabList.value,
           categories: categories.value,
         });
       } catch (e) {
         console.error('保存失敗:', e);
       }
     } else {
-      localStorage.setItem('kakeibo_vue_data', JSON.stringify(newData));
+      localStorage.setItem('kakeibo_vue_all_tabs', JSON.stringify(allTabs));
+      localStorage.setItem('kakeibo_tab_list', JSON.stringify(tabList.value));
+      localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value));
     }
   },
-  { deep: true }
+  { deep: true },
 );
 
-// --- 認証ロジック ---
+// --- 認証 ---
 const login = async () => {
   try {
     await signInWithPopup(auth, googleProvider);
   } catch (err) {
-    console.error('ログインエラー:', err);
+    console.error(err);
   }
 };
 
-const logout = async () => {
-  if (confirm('ログアウトする？')) {
-    await signOut(auth);
+// --- タブ操作 ---
+const addNewTab = () => {
+  let name = prompt('シミュレーション名を入力してね');
+  if (name === null) return;
+  if (name.trim() === '') name = '無題';
+
+  let finalName = name;
+  let counter = 1;
+  while (tabList.value.includes(finalName)) {
+    finalName = `${name} (${counter++})`;
+  }
+  tabList.value.push(finalName);
+  allTabs[finalName] = createEmptyData();
+  currentTab.value = finalName;
+};
+
+const renameTab = (index) => {
+  const oldName = tabList.value[index];
+  let newName = prompt('名前を変更', oldName);
+  if (newName === null) return;
+  if (newName.trim() === '') newName = '無題';
+
+  if (newName !== oldName) {
+    if (tabList.value.includes(newName)) {
+      alert('その名前はもう使われているよ！');
+      return;
+    }
+    allTabs[newName] = JSON.parse(JSON.stringify(allTabs[oldName]));
+    delete allTabs[oldName];
+    tabList.value[index] = newName;
+    if (currentTab.value === oldName) currentTab.value = newName;
   }
 };
 
-// --- 編集・削除ロジック ---
+const removeTab = (index) => {
+  const name = tabList.value[index];
+  if (tabList.length <= 1) return;
+  if (confirm(`「${name}」を消してもいい？`)) {
+    tabList.value.splice(index, 1);
+    delete allTabs[name];
+    currentTab.value = tabList.value[0];
+  }
+};
+
+// --- 計算ロジック ---
+const getMonthTotal = (m) => {
+  const cur = allTabs[currentTab.value];
+  if (!cur) return 0;
+  return categories.value
+    .filter((c) => c.id !== 'income')
+    .reduce((sum, cat) => sum + (Number(cur[cat.id]?.[m]) || 0), 0);
+};
+
+const getMonthBalance = (m) => {
+  const cur = allTabs[currentTab.value];
+  if (!cur) return 0;
+  return (Number(cur['income']?.[m]) || 0) - getMonthTotal(m);
+};
+
+const totalIncome = () => {
+  const cur = allTabs[currentTab.value];
+  return cur ? Object.values(cur['income'] || {}).reduce((s, v) => s + (Number(v) || 0), 0) : 0;
+};
+
+const totalInvestment = () => {
+  const cur = allTabs[currentTab.value];
+  return cur ? Object.values(cur['investment'] || {}).reduce((s, v) => s + (Number(v) || 0), 0) : 0;
+};
+
+const totalOut = () => {
+  const cur = allTabs[currentTab.value];
+  if (!cur) return 0;
+  return categories.value
+    .filter((c) => c.id !== 'income')
+    .reduce((sum, c) => sum + Object.values(cur[c.id] || {}).reduce((s, v) => s + (Number(v) || 0), 0), 0);
+};
+
+// 🌟 グラフ用に整形されたデータを返す (知的好奇心用)
+const chartDataSummary = computed(() => {
+  return categories.value.map((cat) => ({
+    label: cat.label,
+    total: Object.values(allTabs[currentTab.value][cat.id] || {}).reduce((s, v) => s + Number(v), 0),
+  }));
+});
+
+// --- カテゴリ編集 ---
 const editingCategory = ref(null);
 const openEdit = (cat) => {
   editingCategory.value = { ...cat };
@@ -93,55 +192,36 @@ const saveEdit = () => {
   if (editingCategory.value.id === 'new') {
     const newId = 'cat_' + Date.now();
     categories.value.push({ id: newId, label: editingCategory.value.label });
-    data[newId] = {};
+    Object.keys(allTabs).forEach((t) => {
+      allTabs[t][newId] = {};
+      for (let m = 1; m <= 12; m++) allTabs[t][newId][m] = 0;
+    });
   } else {
     const index = categories.value.findIndex((c) => c.id === editingCategory.value.id);
     if (index !== -1) categories.value[index].label = editingCategory.value.label;
   }
-  localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value));
   editingCategory.value = null;
 };
 const deleteCategory = (id, label) => {
   if (confirm(`「${label}」を削除してもいい？`)) {
     categories.value = categories.value.filter((c) => c.id !== id);
-    delete data[id];
-    localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value));
+    Object.keys(allTabs).forEach((t) => delete allTabs[t][id]);
     return true;
   }
   return false;
 };
 const deleteFromEdit = () => {
-  deleteCategory(editingCategory.value.id, editingCategory.value.label);
-  editingCategory.value = null;
+  if (deleteCategory(editingCategory.value.id, editingCategory.value.label)) editingCategory.value = null;
 };
-
-// --- 計算ロジック ---
-const getMonthTotal = (m) =>
-  categories.value.filter((c) => c.id !== 'income').reduce((sum, cat) => sum + (Number(data[cat.id]?.[m]) || 0), 0);
-const getMonthBalance = (m) => (Number(data['income']?.[m]) || 0) - getMonthTotal(m);
-const totalIncome = () =>
-  categories.value
-    .filter((c) => c.id === 'income')
-    .reduce((sum, c) => sum + Object.values(data[c.id] || {}).reduce((s, v) => s + (Number(v) || 0), 0), 0);
-const totalInvestment = () =>
-  categories.value
-    .filter((c) => c.id === 'investment')
-    .reduce((sum, c) => sum + Object.values(data[c.id] || {}).reduce((s, v) => s + (Number(v) || 0), 0), 0);
-const totalOut = () =>
-  categories.value
-    .filter((c) => c.id !== 'income')
-    .reduce((sum, c) => sum + Object.values(data[c.id] || {}).reduce((s, v) => s + (Number(v) || 0), 0), 0);
-
 const moveCategory = (index, direction) => {
   const newIndex = index + direction;
   if (newIndex < 0 || newIndex >= categories.value.length) return;
   const temp = categories.value[index];
   categories.value[index] = categories.value[newIndex];
   categories.value[newIndex] = temp;
-  localStorage.setItem('kakeibo_categories', JSON.stringify(categories.value));
 };
 
-// --- 選択・ドラッグロジック ---
+// --- セル選択・コピペ (省略なしで維持) ---
 const selectedCells = ref([]);
 const isDragging = ref(false);
 const startCell = ref(null);
@@ -154,9 +234,11 @@ const startSelect = (catId, month, event) => {
   startCell.value = { catId, month };
   updateSelectionRange(catId, month);
 };
+
 const handleMouseEnter = (catId, month) => {
   if (isDragging.value && startCell.value) updateSelectionRange(catId, month);
 };
+
 const updateSelectionRange = (currentCatId, currentMonth) => {
   const startCatIdx = categories.value.findIndex((c) => c.id === startCell.value.catId);
   const endCatIdx = categories.value.findIndex((c) => c.id === currentCatId);
@@ -167,27 +249,21 @@ const updateSelectionRange = (currentCatId, currentMonth) => {
   const newSelection = [];
   for (let i = minCat; i <= maxCat; i++) {
     const cid = categories.value[i].id;
-    for (let m = minMonth; m <= maxMonth; m++) {
-      newSelection.push({ key: `${cid}-${m}`, catId: cid, month: m });
-    }
+    for (let m = minMonth; m <= maxMonth; m++) newSelection.push({ key: `${cid}-${m}`, catId: cid, month: m });
   }
   selectedCells.value = newSelection;
 };
+
 const stopDragging = () => {
   isDragging.value = false;
   startCell.value = null;
 };
 
-// --- コピー＆ペースト ---
-const isCopying = ref(false);
 const copyToClipboard = async () => {
   if (selectedCells.value.length === 0) return;
-  const textToCopy = selectedCells.value.map((cell) => data[cell.catId][cell.month] || 0).join('\n');
+  const cur = allTabs[currentTab.value];
+  const textToCopy = selectedCells.value.map((cell) => cur[cell.catId][cell.month] || 0).join('\n');
   await navigator.clipboard.writeText(textToCopy);
-  isCopying.value = true;
-  setTimeout(() => {
-    isCopying.value = false;
-  }, 1000);
 };
 
 const pasteFromClipboard = async () => {
@@ -199,59 +275,45 @@ const pasteFromClipboard = async () => {
       .map((v) => v.trim())
       .filter((v) => v.length > 0);
     if (values.length === 0) return;
+    const cur = allTabs[currentTab.value];
     const sortedSelection = [...selectedCells.value].sort((a, b) => {
       const aCatIdx = categories.value.findIndex((c) => c.id === a.catId);
       const bCatIdx = categories.value.findIndex((c) => c.id === b.catId);
-      if (aCatIdx !== bCatIdx) return aCatIdx - bCatIdx;
-      return a.month - b.month;
+      return aCatIdx !== bCatIdx ? aCatIdx - bCatIdx : a.month - b.month;
     });
-    const isSingleValue = values.length === 1;
     sortedSelection.forEach((cell, index) => {
-      const valToPaste = isSingleValue ? values[0] : values[index];
+      const valToPaste = values.length === 1 ? values[0] : values[index];
       if (valToPaste !== undefined) {
         const num = Number(valToPaste.replace(/[^\d.-]/g, ''));
-        if (!isNaN(num)) data[cell.catId][cell.month] = num;
+        if (!isNaN(num)) cur[cell.catId][cell.month] = num;
       }
     });
   } catch (err) {
-    console.error('貼り付けエラー:', err);
+    console.error(err);
   }
 };
 
-// --- ライフサイクル (ここを1つに統合！) ---
 // --- ライフサイクル ---
 onMounted(() => {
-  // Firebase監視
   onAuthStateChanged(auth, async (currentUser) => {
-    console.log('Auth State Changed:', currentUser);
     user.value = currentUser;
-
     if (currentUser) {
-      // 🌟 ログイン成功時、Firestore からデータを取得
-      try {
-        const docRef = doc(db, 'users', currentUser.uid);
-        const docSnap = await getDoc(docRef);
-
-        if (docSnap.exists()) {
-          const cloudData = docSnap.data();
-          // データを reactive な data にコピー
-          if (cloudData.kakeibo_data) {
-            Object.assign(data, cloudData.kakeibo_data);
-          }
-          if (cloudData.categories) {
-            categories.value = cloudData.categories;
-          }
-          console.log('クラウドからデータを読み込んだよ！');
+      const docSnap = await getDoc(doc(db, 'users', currentUser.uid));
+      if (docSnap.exists()) {
+        const cloudData = docSnap.data();
+        if (cloudData.all_tabs_data) Object.assign(allTabs, cloudData.all_tabs_data);
+        if (cloudData.tab_list) {
+          tabList.value = cloudData.tab_list;
+          currentTab.value = tabList.value[0];
         }
-      } catch (err) {
-        console.error('データ取得エラー:', err);
+        if (cloudData.categories) categories.value = cloudData.categories;
       }
     }
   });
 
+  window.addEventListener('click', closeMenu);
   window.addEventListener('mouseup', stopDragging);
-
-  const handleKey = (e) => {
+  window.addEventListener('keydown', (e) => {
     if (selectedCells.value.length === 0) return;
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
       e.preventDefault();
@@ -264,19 +326,18 @@ onMounted(() => {
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (e.target.tagName !== 'INPUT') {
         e.preventDefault();
-        selectedCells.value.forEach((cell) => {
-          data[cell.catId][cell.month] = 0;
-        });
+        selectedCells.value.forEach((cell) => (allTabs[currentTab.value][cell.catId][cell.month] = 0));
       }
     }
-  };
-  window.addEventListener('keydown', handleKey);
-
-  onUnmounted(() => {
-    window.removeEventListener('mouseup', stopDragging);
-    window.removeEventListener('keydown', handleKey);
   });
 });
+
+onUnmounted(() => {
+  window.removeEventListener('click', closeMenu);
+  window.removeEventListener('mouseup', stopDragging);
+});
+
+const truncateName = (n) => (n && n.length > 8 ? n.substring(0, 8) + '..' : n);
 </script>
 <template>
   <div class="app-wrapper">
@@ -293,10 +354,41 @@ onMounted(() => {
 
         <div v-else>
           <div class="auth-section">
+            <div class="tabs-bar">
+              <div class="tabs-scroll">
+                <div
+                  v-for="(tabName, index) in tabList"
+                  :key="index"
+                  class="tab-item"
+                  :class="{ 'is-active': currentTab === tabName }"
+                  @click="currentTab = tabName"
+                >
+                  <span @dblclick="renameTab(index)">{{ tabName }}</span>
+                  <button v-if="tabList.length > 1" class="tab-close-btn" @click.stop="removeTab(index)">×</button>
+                </div>
+                <button class="add-tab-btn" @click="addNewTab">＋</button>
+              </div>
+            </div>
+
             <div class="user-info">
-              <img :src="user.photoURL" class="user-icon" referrerpolicy="no-referrer" />
-              <span class="user-name">{{ user.displayName }} さん</span>
-              <button @click="logout" class="action-btn logout-btn">ログアウト</button>
+              <div class="user-menu-wrapper">
+                <img
+                  :src="user.photoURL"
+                  class="user-icon clickable"
+                  @click.stop="toggleUserMenu"
+                  referrerpolicy="no-referrer"
+                />
+                <div v-if="showUserMenu" class="user-dropdown shadow">
+                  <div class="user-info-display">
+                    <div class="user-name-display">{{ user.displayName }}</div>
+                    <div class="user-email-display">{{ user.email }}</div>
+                  </div>
+
+                  <div class="dropdown-footer">
+                    <button @click="logout" class="action-btn logout-btn-styled">ログアウト</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -335,11 +427,11 @@ onMounted(() => {
 
                 <MonthRow
                   :class="{ 'is-dragging': isDragging }"
-                  :month-data="data[cat.id]"
+                  :month-data="allTabs[currentTab][cat.id]"
                   :selected-month-keys="selectedCells.filter((c) => c.catId === cat.id).map((c) => c.month)"
                   @mousedown-cell="(m, event) => startSelect(cat.id, m, event)"
                   @mouse-enter-cell="(m) => handleMouseEnter(cat.id, m)"
-                  @update:monthData="data[cat.id] = $event"
+                  @update:monthData="allTabs[currentTab][cat.id] = $event"
                 />
                 <hr v-if="cat.id === 'investment'" class="row-divider" />
               </div>
@@ -353,8 +445,8 @@ onMounted(() => {
                 </div>
               </div>
 
-              <div class="row balance-row">
-                <label class="month-label sticky-label bg-primary">手残り（収支）</label>
+              <div class="row balance-row bg-primary">
+                <label class="month-label sticky-label">手残り（収支）</label>
                 <div class="months">
                   <div v-for="m in 12" :key="m" class="month-total-cell" :class="{ minus: getMonthBalance(m) < 0 }">
                     {{ getMonthBalance(m).toLocaleString() }}<span class="total-unit">円</span>
@@ -702,16 +794,122 @@ hr {
 }
 .auth-section {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 10px;
   background: #fdfdfd;
   border-bottom: 1px solid #eee;
   margin-bottom: 20px;
+  gap: 15px;
 }
+.tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  overflow: hidden; /* はみ出た分を隠す */
+}
+.tabs-scroll::-webkit-scrollbar {
+  display: none; /* Chrome/Safari用：スクロールバー隠し */
+}
+.tabs-scroll {
+  display: flex; /* 👈 これで横並びになる */
+  align-items: center;
+  flex-direction: row; /* 👈 明示的に横方向を指定 */
+  gap: 4px;
+  overflow-x: auto; /* 👈 横に溢れたらスクロールできるようにする */
+  white-space: nowrap; /* 👈 文字が折り返されないようにする */
+  padding-bottom: 4px; /* スクロールバーとの隙間 */
+  flex: 1;
+}
+
+.tab-item {
+  padding: 6px 12px;
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 6px; /* 少し丸みを抑えてスッキリ */
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #666;
+  border-bottom: none; /* 下線を消してカードっぽく */
+  border-radius: 8px 8px 0 0; /* 上だけ丸くする */
+}
+
+.tab-item.is-active {
+  background: #4caf50;
+  color: white;
+  border-color: #4caf50;
+  font-weight: bold;
+}
+
+.tab-close-btn {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 18px;
+  margin-left: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
+  width: 20px;
+  height: 20px;
+  position: relative;
+  top: -1px;
+  line-height: 1;
+}
+
+.tab-close-btn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 50%;
+}
+.add-tab-btn {
+  background: #f0f0f0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  flex-shrink: 0; /* 👈 潰れないように固定 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #666;
+  margin-left: 4px; /* タブとの距離 */
+  transition: all 0.2s;
+  border-radius: 50%;
+}
+
+.add-tab-btn:hover {
+  background: #eee;
+  color: #333;
+  border-color: #999;
+}
+
 .user-info {
   display: flex;
   align-items: center;
+  gap: 8px;
+  flex-shrink: 0; /* 名前部分が潰れないように */
   gap: 12px;
+}
+
+.user-name {
+  font-weight: bold;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.user-info-display {
+  padding: 8px 12px 12px 12px;
+  cursor: default;
 }
 .user-icon {
   width: 32px;
@@ -751,6 +949,83 @@ hr {
   font-size: 16px;
   background-color: #4285f4;
   color: white;
+}
+.user-menu-wrapper {
+  position: relative;
+}
+
+.user-dropdown {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  min-width: 250px;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.user-icon.clickable {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.user-icon.clickable:hover {
+  opacity: 0.8;
+}
+
+.dropdown-item {
+  padding: 10px 15px;
+  font-size: 14px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dropdown-item:hover {
+  background-color: #f5f5f5;
+}
+
+.user-name-display {
+  cursor: default;
+  font-weight: bold;
+  color: #333;
+  word-break: break-all; /* 長い名前でも強制的に折り返す */
+  width: auto;
+  background: none !important;
+}
+.user-email-display {
+  font-size: 12px;
+  color: #777;
+  word-break: break-all;
+}
+.dropdown-footer {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
+  display: flex;
+  justify-content: center; /* ボタンを中央に */
+}
+.logout-btn-styled {
+  width: 100%;
+  justify-content: center;
+  background-color: #f1f8e9; /* ほんのり赤背景 */
+  color: #388e3c; /* 赤文字 */
+  border: 1px solid #c5e1a5; /* 赤枠 */
+  padding: 8px 0;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.logout-btn-styled:hover {
+  background-color: #dcedc8;
+  border-color: #aed581;
+  color: #2e7d32;
 }
 @media (max-width: 768px) {
   .sticky-side-area,
@@ -794,6 +1069,61 @@ hr {
 
   .result p {
     font-size: 16px;
+  }
+  .auth-section {
+    flex-direction: column; /* スマホでは上下に並べるか検討、一旦横並び維持 */
+    align-items: flex-end;
+    gap: 10px;
+  }
+  .tabs-bar {
+    width: 100%;
+  }
+  .auth-section {
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  /* 2. タブエリアを柔軟に広げる */
+  .tabs-bar {
+    flex: 1; /* アイコン以外のスペースを全部使う */
+    min-width: 0; /* flex内の子要素が溢れないようにするおまじない */
+  }
+
+  /* 3. 横スクロールをスムーズに */
+  .tabs-scroll {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch; /* iOSでスルスル動くように */
+    gap: 4px;
+  }
+
+  /* 4. タブ自体のサイズをスマホ用に少しコンパクトに */
+  .tab-item {
+    padding: 10px;
+    font-size: 12px;
+  }
+
+  /* 5. ユーザーアイコン周りの余白を調整 */
+  .user-info {
+    flex-shrink: 0; /* アイコンが潰れないように固定 */
+  }
+
+  .user-icon {
+    width: 28px; /* 少し小さくしてスペース確保 */
+    height: 28px;
+  }
+
+  /* 6. その他スマホ用の調整（既存の分） */
+  .no-mobile {
+    display: none !important;
+  }
+  .card {
+    margin: 0;
+    padding: 10px;
+    max-width: 100%;
   }
 }
 </style>
